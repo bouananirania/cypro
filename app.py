@@ -6,7 +6,7 @@ import base64
 import io
 import os
 import logging
-import traceback
+import re
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -34,37 +34,44 @@ def load_key():
 key = load_key()
 cipher = Fernet(key)
 
+# Vérifier si une chaîne est un Base64 valide
+def is_valid_base64(s):
+    return bool(re.fullmatch(r'^[A-Za-z0-9+/]+={0,2}$', s))
+
 # Chiffrement du message
 def encrypt_message(message):
     try:
-        encrypted_message = cipher.encrypt(message.encode())
-        return base64.b64encode(encrypted_message).decode()
-    except Exception as e:
-        logging.error("Erreur de chiffrement : ", exc_info=True)
+        encrypted_message = base64.b64encode(cipher.encrypt(message.encode())).decode()
+        return encrypted_message
+    except Exception:
+        logging.error("Erreur de chiffrement", exc_info=True)
         return None
 
 # Déchiffrement du message
 def decrypt_message(encrypted_message):
     try:
+        if not is_valid_base64(encrypted_message):
+            logging.error("Le message extrait n'est pas un Base64 valide.")
+            return None
         decrypted_message = cipher.decrypt(base64.b64decode(encrypted_message))
         return decrypted_message.decode()
-    except Exception as e:
-        logging.error("Erreur de déchiffrement : ", exc_info=True)
+    except Exception:
+        logging.error("Erreur de déchiffrement", exc_info=True)
         return None
 
 # Cacher un message dans une image
 def hide_message_in_image(image_bytes, message):
     try:
         if len(image_bytes) > MAX_IMAGE_SIZE:
-            return "Erreur : Image trop grande (max 5 Mo)."
+            return None
 
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         data = np.array(img, dtype=np.uint8)
 
         binary_message = ''.join(format(ord(char), '08b') for char in message) + '11111111'
-
+        
         if len(binary_message) > data.size:
-            return "Erreur : Message trop long pour cette image."
+            return None
 
         index = 0
         for i in range(data.shape[0]):
@@ -80,8 +87,8 @@ def hide_message_in_image(image_bytes, message):
         img_byte_arr = io.BytesIO()
         encrypted_img.save(img_byte_arr, format="PNG")
         return img_byte_arr.getvalue()
-    except Exception as e:
-        logging.error("Erreur dans hide_message_in_image : ", exc_info=True)
+    except Exception:
+        logging.error("Erreur dans hide_message_in_image", exc_info=True)
         return None
 
 # Extraire un message caché dans une image
@@ -90,18 +97,23 @@ def extract_message_from_image(image_bytes):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         data = np.array(img, dtype=np.uint8)
 
-        binary_message = "".join(str(data[i, j, k] & 1) for i in range(data.shape[0]) for j in range(data.shape[1]) for k in range(3))
+        binary_message = ""
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                for k in range(3):
+                    binary_message += str(data[i, j, k] & 1)
+                    if binary_message.endswith("11111111"):
+                        binary_message = binary_message[:-8]  # Supprime le marqueur de fin
+                        break
 
         bytes_message = [binary_message[i:i+8] for i in range(0, len(binary_message), 8)]
-        chars = []
-        for byte in bytes_message:
-            if byte == '11111111':
-                break
-            chars.append(chr(int(byte, 2)))
-
-        return ''.join(chars) if chars else None
-    except Exception as e:
-        logging.error("Erreur dans extract_message_from_image : ", exc_info=True)
+        chars = [chr(int(byte, 2)) for byte in bytes_message if len(byte) == 8]
+        extracted_message = ''.join(chars)
+        
+        logging.info(f"Message extrait : {extracted_message}")
+        return extracted_message if extracted_message else None
+    except Exception:
+        logging.error("Erreur dans extract_message_from_image", exc_info=True)
         return None
 
 # Endpoint pour chiffrer et cacher un message dans une image
@@ -126,8 +138,8 @@ def encrypt():
             return jsonify({"error": "Échec du masquage du message"}), 500
 
         return jsonify({"encrypted_image": base64.b64encode(encrypted_image).decode()})
-    except Exception as e:
-        logging.error("Erreur dans /encrypt : ", exc_info=True)
+    except Exception:
+        logging.error("Erreur dans /encrypt", exc_info=True)
         return jsonify({"error": "Erreur interne"}), 500
 
 # Endpoint pour extraire et décrypter un message caché dans une image
@@ -148,8 +160,8 @@ def decrypt():
             return jsonify({"error": "Échec du déchiffrement"}), 400
 
         return jsonify({"message": decrypted_message})
-    except Exception as e:
-        logging.error("Erreur dans /decrypt : ", exc_info=True)
+    except Exception:
+        logging.error("Erreur dans /decrypt", exc_info=True)
         return jsonify({"error": "Erreur interne"}), 500
 
 # Test de connexion
@@ -160,10 +172,9 @@ def home():
 # Gestion des erreurs globales
 @app.errorhandler(Exception)
 def handle_exception(e):
-    logging.error("Erreur détectée : ", exc_info=True)
+    logging.error("Erreur détectée", exc_info=True)
     return jsonify({"error": "Erreur interne du serveur"}), 500
 
 if __name__ == "__main__":
     CORS(app)
-    app.run()
-    
+    app.run(debug=True)
