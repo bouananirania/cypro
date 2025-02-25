@@ -164,5 +164,6 @@ def handle_exception(e):
     return jsonify({"error": "Erreur interne du serveur"}), 500
 
 if __name__ == "__main__":
-    app.run()
     CORS(app)
+    app.run()
+    
