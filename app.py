@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify,CORS
+from flask import Flask, request, jsonify
 from cryptography.fernet import Fernet
 from PIL import Image
 import numpy as np
@@ -7,6 +7,7 @@ import io
 import os
 import logging
 import traceback
+from flask_cors import CORS
 
 app = Flask(__name__)
 
