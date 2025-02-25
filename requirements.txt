@@ -3,3 +3,4 @@ cryptography
 Pillow
 numpy
 gunicorn
+flask-cors
