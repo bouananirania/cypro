@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify,CORS
 from cryptography.fernet import Fernet
 from PIL import Image
 import numpy as np
